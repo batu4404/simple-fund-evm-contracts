@@ -5,8 +5,12 @@ import { Test } from "forge-std/Test.sol";
 import { MessageHashUtils } from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
 import { SimpleFund } from "../src/SimpleFund.sol";
+import { LighterDecoderAndSanitizer } from "../src/decoders/LighterDecoderAndSanitizer.sol";
 import { MockERC20 } from "./mocks/MockERC20.sol";
 import { CallTarget } from "./mocks/CallTarget.sol";
+import { TestDecoderAndSanitizer } from "./mocks/TestDecoderAndSanitizer.sol";
+import { MockLighter } from "./mocks/MockLighter.sol";
+import { MerkleTreeLib } from "../script/merkle/MerkleTreeLib.sol";
 
 contract SimpleFundTest is Test {
     using MessageHashUtils for bytes32;
@@ -28,6 +32,7 @@ contract SimpleFundTest is Test {
     MockERC20 tokenA;
     MockERC20 tokenB;
     CallTarget target;
+    TestDecoderAndSanitizer testDecoder;
 
     function _sign(uint256 privKey, bytes32 rawHash) internal pure returns (bytes memory) {
         bytes32 ethHash = MessageHashUtils.toEthSignedMessageHash(rawHash);
@@ -47,19 +52,39 @@ contract SimpleFundTest is Test {
         ));
     }
 
-    function _executeHash(
+    function _executeByAdminHash(
         address[] memory targets,
         uint256[] memory values,
         bytes[] memory calldatas
     ) internal view returns (bytes32) {
         return keccak256(abi.encode(
-            keccak256("execute"),
+            keccak256("executeByAdmin"),
             fund.nonce(),
             address(fund),
             block.chainid,
             targets,
             values,
             calldatas
+        ));
+    }
+
+    function _setManageRootHash(bytes32 root) internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("setManageRoot"),
+            fund.nonce(),
+            address(fund),
+            block.chainid,
+            root
+        ));
+    }
+
+    function _setLighterDecoderHash(address decoder) internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("setLighterDecoder"),
+            fund.nonce(),
+            address(fund),
+            block.chainid,
+            decoder
         ));
     }
 
@@ -126,6 +151,68 @@ contract SimpleFundTest is Test {
         r[1] = b;
     }
 
+    function _noArgs() internal pure returns (address[] memory r) {
+        r = new address[](0);
+    }
+
+    function _decodersN(uint256 n) internal view returns (address[] memory r) {
+        r = new address[](n);
+        for (uint256 i; i < n; ++i) {
+            r[i] = address(testDecoder);
+        }
+    }
+
+    function _emptyProofs(uint256 n) internal pure returns (bytes32[][] memory r) {
+        r = new bytes32[][](n);
+    }
+
+    function _setRoot(bytes32 root) internal {
+        bytes memory psig = _sign(PASSWORD_KEY, _setManageRootHash(root));
+        vm.prank(admin);
+        fund.setManageRoot(root, psig);
+    }
+
+    function _setRootForCalls(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas
+    ) internal returns (bytes32[][] memory proofs, address[] memory decoders) {
+        MerkleTreeLib.ManageLeaf[] memory leaves = new MerkleTreeLib.ManageLeaf[](targets.length);
+        for (uint256 i; i < targets.length; ++i) {
+            leaves[i] = MerkleTreeLib.leafFromCall(
+                address(testDecoder),
+                targets[i],
+                values[i],
+                calldatas[i],
+                _noArgs()
+            );
+        }
+        bytes32 root;
+        (proofs, root) = MerkleTreeLib.proofsAndRoot(leaves);
+        decoders = _decodersN(targets.length);
+        _setRoot(root);
+    }
+
+    function _execute(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas
+    ) internal {
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
+        vm.prank(operator);
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function _executeByAdmin(
+        address[] memory targets,
+        uint256[] memory values,
+        bytes[] memory calldatas
+    ) internal {
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+        vm.prank(admin);
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
     function setUp() public {
         admin = vm.addr(ADMIN_KEY);
         passwordSigner = vm.addr(PASSWORD_KEY);
@@ -136,6 +223,7 @@ contract SimpleFundTest is Test {
         tokenA = new MockERC20();
         tokenB = new MockERC20();
         target = new CallTarget();
+        testDecoder = new TestDecoderAndSanitizer();
 
         fund = new SimpleFund(admin, operator, passwordSigner);
 
@@ -375,17 +463,15 @@ contract SimpleFundTest is Test {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    //  EXECUTE — OPERATOR + PASSWORD SIG
+    //  EXECUTE — OPERATOR + PASSWORD SIG + MERKLE PROOF
     // ═══════════════════════════════════════════════════════════════════════
 
     function testExecute_Valid_SingleCall() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
 
-        vm.prank(operator);
-        fund.execute(targets, values, calldatas, psig);
+        _execute(targets, values, calldatas);
 
         assertEq(target.counter(), 1);
         assertEq(fund.nonce(), 1);
@@ -398,10 +484,8 @@ contract SimpleFundTest is Test {
             abi.encodeCall(CallTarget.increment, ()),
             abi.encodeCall(CallTarget.setCounter, (10))
         );
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
 
-        vm.prank(operator);
-        fund.execute(targets, values, calldatas, psig);
+        _execute(targets, values, calldatas);
 
         assertEq(target.counter(), 10);
     }
@@ -409,11 +493,9 @@ contract SimpleFundTest is Test {
     function testExecute_WithNativeValue_Success() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(2 ether);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ()));
 
-        vm.prank(operator);
-        fund.execute(targets, values, calldatas, psig);
+        _execute(targets, values, calldatas);
 
         assertEq(target.lastValue(), 2 ether);
         assertEq(address(target).balance, 2 ether);
@@ -423,10 +505,8 @@ contract SimpleFundTest is Test {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(1 ether);
         bytes[] memory calldatas = _data1(hex"1234");
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
 
-        vm.prank(operator);
-        fund.execute(targets, values, calldatas, psig);
+        _execute(targets, values, calldatas);
 
         assertEq(target.fallbackCalls(), 1);
         assertEq(target.lastValue(), 1 ether);
@@ -435,23 +515,13 @@ contract SimpleFundTest is Test {
     function testExecute_OnlyOperator_Reverts() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes32[][] memory proofs = _emptyProofs(1);
+        address[] memory decoders = _decodersN(1);
 
         vm.prank(attacker);
         vm.expectRevert("Not operator");
-        fund.execute(targets, values, calldatas, psig);
-    }
-
-    function testExecute_WrongPasswordSig_Reverts() public {
-        address[] memory targets = _arr1(address(target));
-        uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(ATTACKER_KEY, _executeHash(targets, values, calldatas));
-
-        vm.prank(operator);
-        vm.expectRevert("Invalid password sig");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_LengthMismatch_TargetsValues_Reverts() public {
@@ -461,114 +531,396 @@ contract SimpleFundTest is Test {
             abi.encodeCall(CallTarget.increment, ()),
             abi.encodeCall(CallTarget.increment, ())
         );
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(_arr2(address(target), address(target)), _vals2(0, 0), calldatas));
+        bytes32[][] memory proofs = _emptyProofs(2);
+        address[] memory decoders = _decodersN(2);
 
         vm.prank(operator);
         vm.expectRevert("Input length mismatch");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_LengthMismatch_TargetsCalldatas_Reverts() public {
         address[] memory targets = _arr2(address(target), address(target));
         uint256[] memory values = _vals2(0, 0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, _data2(abi.encodeCall(CallTarget.increment, ()), abi.encodeCall(CallTarget.increment, ()) )));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes32[][] memory proofs = _emptyProofs(2);
+        address[] memory decoders = _decodersN(2);
 
         vm.prank(operator);
         vm.expectRevert("Input length mismatch");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function testExecute_LengthMismatch_Proofs_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes32[][] memory proofs = _emptyProofs(2);
+        address[] memory decoders = _decodersN(1);
+
+        vm.prank(operator);
+        vm.expectRevert("Input length mismatch");
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function testExecute_LengthMismatch_Decoders_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes32[][] memory proofs = _emptyProofs(1);
+        address[] memory decoders = _decodersN(2);
+
+        vm.prank(operator);
+        vm.expectRevert("Input length mismatch");
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_EmptyBatch_Reverts() public {
         address[] memory targets = new address[](0);
         uint256[] memory values = new uint256[](0);
         bytes[] memory calldatas = new bytes[](0);
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes32[][] memory proofs = new bytes32[][](0);
+        address[] memory decoders = new address[](0);
 
         vm.prank(operator);
         vm.expectRevert("Empty execute batch");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_ZeroTarget_Reverts() public {
         address[] memory targets = _arr1(address(0));
         uint256[] memory values = _vals1(0);
         bytes[] memory calldatas = _data1(hex"");
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(
+            _arr1(address(target)),
+            _vals1(0),
+            _data1(abi.encodeCall(CallTarget.increment, ()))
+        );
 
         vm.prank(operator);
         vm.expectRevert("Zero target");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function testExecute_SelfCall_Reverts() public {
+        address[] memory targets = _arr1(address(fund));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(
+            _arr1(address(target)),
+            _vals1(0),
+            _data1(abi.encodeCall(CallTarget.increment, ()))
+        );
+
+        vm.prank(operator);
+        vm.expectRevert("Self call");
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function testExecute_ManageRootNotSet_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes32[][] memory proofs = _emptyProofs(1);
+        address[] memory decoders = _decodersN(1);
+
+        vm.prank(operator);
+        vm.expectRevert("Manage root not set");
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    function testExecute_InvalidProof_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
+        proofs[0] = new bytes32[](1);
+        proofs[0][0] = bytes32(uint256(1));
+
+        vm.prank(operator);
+        vm.expectRevert("Invalid manage proof");
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_InsufficientNativeBalance_Reverts() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(100 ether);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
 
         vm.prank(operator);
         vm.expectRevert("Insufficient native balance");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_TotalValueOverflow_Reverts() public {
         address[] memory targets = _arr2(address(target), address(target));
         uint256[] memory values = _vals2(type(uint256).max, 1);
         bytes[] memory calldatas = _data2(hex"", hex"");
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
 
         vm.prank(operator);
         vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_CallRevertsWithReason_Bubbles() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithReason, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithReason, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
 
         vm.prank(operator);
         vm.expectRevert("CallTarget: execution failed");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
     function testExecute_CallRevertsWithoutReason_UsesDefaultMessage() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithoutReason, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithoutReason, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
 
         vm.prank(operator);
         vm.expectRevert("Execute call failed");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
     }
 
-    function testExecute_ReplayAttack_Reverts() public {
+    function testExecute_Replay_Succeeds() public {
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
+        uint256 nonceAfterRoot = fund.nonce();
 
         vm.prank(operator);
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
 
         vm.prank(operator);
-        vm.expectRevert("Invalid password sig");
-        fund.execute(targets, values, calldatas, psig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
+
+        assertEq(target.counter(), 2);
+        assertEq(fund.nonce(), nonceAfterRoot);
     }
 
-    function testExecute_CrossFunctionSigReuse_Reverts() public {
+    function testExecute_NotInMerkleRoot_Reverts() public {
+        address[] memory rootedTargets = _arr1(address(target));
+        uint256[] memory rootedValues = _vals1(0);
+        bytes[] memory rootedCalldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(
+            rootedTargets,
+            rootedValues,
+            rootedCalldatas
+        );
+
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.setCounter, (10)));
+
+        vm.prank(operator);
+        vm.expectRevert("Invalid manage proof");
+        fund.execute(proofs, decoders, targets, values, calldatas);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  EXECUTE BY ADMIN — ADMIN + PASSWORD SIG, NO MERKLE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function testExecuteByAdmin_Valid_SingleCall() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+
+        _executeByAdmin(targets, values, calldatas);
+
+        assertEq(target.counter(), 1);
+        assertEq(fund.nonce(), 1);
+    }
+
+    function testExecuteByAdmin_Valid_BatchCalls() public {
+        address[] memory targets = _arr2(address(target), address(target));
+        uint256[] memory values = _vals2(0, 0);
+        bytes[] memory calldatas = _data2(
+            abi.encodeCall(CallTarget.increment, ()),
+            abi.encodeCall(CallTarget.setCounter, (10))
+        );
+
+        _executeByAdmin(targets, values, calldatas);
+
+        assertEq(target.counter(), 10);
+    }
+
+    function testExecuteByAdmin_WithNativeValue_Success() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(2 ether);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ()));
+
+        _executeByAdmin(targets, values, calldatas);
+
+        assertEq(target.lastValue(), 2 ether);
+        assertEq(address(target).balance, 2 ether);
+    }
+
+    function testExecuteByAdmin_WithFallbackCall_Success() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(1 ether);
+        bytes[] memory calldatas = _data1(hex"1234");
+
+        _executeByAdmin(targets, values, calldatas);
+
+        assertEq(target.fallbackCalls(), 1);
+        assertEq(target.lastValue(), 1 ether);
+    }
+
+    function testExecuteByAdmin_OnlyAdmin_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(attacker);
+        vm.expectRevert("Not admin");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_WrongPasswordSig_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes memory psig = _sign(ATTACKER_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert("Invalid password sig");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_LengthMismatch_TargetsValues_Reverts() public {
+        address[] memory targets = _arr2(address(target), address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data2(
+            abi.encodeCall(CallTarget.increment, ()),
+            abi.encodeCall(CallTarget.increment, ())
+        );
+
+        vm.prank(admin);
+        vm.expectRevert("Input length mismatch");
+        fund.executeByAdmin(targets, values, calldatas, "");
+    }
+
+    function testExecuteByAdmin_LengthMismatch_TargetsCalldatas_Reverts() public {
+        address[] memory targets = _arr2(address(target), address(target));
+        uint256[] memory values = _vals2(0, 0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+
+        vm.prank(admin);
+        vm.expectRevert("Input length mismatch");
+        fund.executeByAdmin(targets, values, calldatas, "");
+    }
+
+    function testExecuteByAdmin_EmptyBatch_Reverts() public {
+        address[] memory targets = new address[](0);
+        uint256[] memory values = new uint256[](0);
+        bytes[] memory calldatas = new bytes[](0);
+
+        vm.prank(admin);
+        vm.expectRevert("Empty execute batch");
+        fund.executeByAdmin(targets, values, calldatas, "");
+    }
+
+    function testExecuteByAdmin_ZeroTarget_Reverts() public {
+        address[] memory targets = _arr1(address(0));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(hex"");
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert("Zero target");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_InsufficientNativeBalance_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(100 ether);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.receiveValue, ()));
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert("Insufficient native balance");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_TotalValueOverflow_Reverts() public {
+        address[] memory targets = _arr2(address(target), address(target));
+        uint256[] memory values = _vals2(type(uint256).max, 1);
+        bytes[] memory calldatas = _data2(hex"", hex"");
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSignature("Panic(uint256)", 0x11));
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_CallRevertsWithReason_Bubbles() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithReason, ()));
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert("CallTarget: execution failed");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_CallRevertsWithoutReason_UsesDefaultMessage() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.revertWithoutReason, ()));
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        vm.expectRevert("Execute call failed");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_ReplayAttack_Reverts() public {
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        bytes memory psig = _sign(PASSWORD_KEY, _executeByAdminHash(targets, values, calldatas));
+
+        vm.prank(admin);
+        fund.executeByAdmin(targets, values, calldatas, psig);
+
+        vm.prank(admin);
+        vm.expectRevert("Invalid password sig");
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_WithdrawSigReuse_Reverts() public {
         bytes memory psig = _sign(PASSWORD_KEY, _withdrawHash(address(tokenA), 1 ether, admin));
 
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
 
-        vm.prank(operator);
+        vm.prank(admin);
         vm.expectRevert("Invalid password sig");
-        fund.execute(targets, values, calldatas, psig);
+        fund.executeByAdmin(targets, values, calldatas, psig);
+    }
+
+    function testExecuteByAdmin_NotInMerkleRoot_Succeeds() public {
+        address[] memory rootedTargets = _arr1(address(target));
+        uint256[] memory rootedValues = _vals1(0);
+        bytes[] memory rootedCalldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        _setRootForCalls(rootedTargets, rootedValues, rootedCalldatas);
+
+        address[] memory targets = _arr1(address(target));
+        uint256[] memory values = _vals1(0);
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.setCounter, (42)));
+
+        _executeByAdmin(targets, values, calldatas);
+
+        assertEq(target.counter(), 42);
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -766,17 +1118,14 @@ contract SimpleFundTest is Test {
 
     function testSignatures_BoundToChainId() public {
         uint256 originalChainId = block.chainid;
-
-        address[] memory targets = _arr1(address(target));
-        uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory psig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes32 hash = _withdrawHash(address(tokenA), 10 ether, admin);
+        bytes memory psig = _sign(PASSWORD_KEY, hash);
 
         vm.chainId(originalChainId + 1);
 
-        vm.prank(operator);
+        vm.prank(admin);
         vm.expectRevert("Invalid password sig");
-        fund.execute(targets, values, calldatas, psig);
+        fund.withdraw(address(tokenA), 10 ether, admin, psig);
 
         vm.chainId(originalChainId);
     }
@@ -812,10 +1161,12 @@ contract SimpleFundTest is Test {
 
         address[] memory targets = _arr1(address(target));
         uint256[] memory values = _vals1(0);
-        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ())); 
-        bytes memory executeSig = _sign(PASSWORD_KEY, _executeHash(targets, values, calldatas));
+        bytes[] memory calldatas = _data1(abi.encodeCall(CallTarget.increment, ()));
+        (bytes32[][] memory proofs, address[] memory decoders) = _setRootForCalls(targets, values, calldatas);
+        assertEq(fund.nonce(), 2);
+
         vm.prank(operator);
-        fund.execute(targets, values, calldatas, executeSig);
+        fund.execute(proofs, decoders, targets, values, calldatas);
         assertEq(fund.nonce(), 2);
 
         address newOperator = makeAddr("newOp2");
@@ -833,5 +1184,216 @@ contract SimpleFundTest is Test {
         (bool ok,) = address(fund).call{value: 1 ether}("");
         assertTrue(ok);
         assertEq(address(fund).balance, 11 ether);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  SET MANAGE ROOT / SET LIGHTER DECODER
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function testSetManageRoot_Direct_Valid() public {
+        bytes32 root = bytes32(uint256(1));
+        bytes memory psig = _sign(PASSWORD_KEY, _setManageRootHash(root));
+        vm.prank(admin);
+        fund.setManageRoot(root, psig);
+        assertEq(fund.manageRoot(), root);
+    }
+
+    function testSetManageRoot_Relay_Valid() public {
+        bytes32 root = bytes32(uint256(2));
+        bytes32 hash = _setManageRootHash(root);
+        vm.prank(relayer);
+        fund.setManageRootRelay(root, _sign(ADMIN_KEY, hash), _sign(PASSWORD_KEY, hash));
+        assertEq(fund.manageRoot(), root);
+    }
+
+    function testSetManageRoot_Direct_WrongPassword_Reverts() public {
+        bytes32 root = bytes32(uint256(1));
+        bytes memory psig = _sign(ATTACKER_KEY, _setManageRootHash(root));
+        vm.prank(admin);
+        vm.expectRevert("Invalid password sig");
+        fund.setManageRoot(root, psig);
+    }
+
+    function testSetLighterDecoder_Direct_Valid() public {
+        LighterDecoderAndSanitizer decoder = new LighterDecoderAndSanitizer(address(fund));
+        bytes memory psig = _sign(PASSWORD_KEY, _setLighterDecoderHash(address(decoder)));
+        vm.prank(admin);
+        fund.setLighterDecoder(address(decoder), psig);
+        assertEq(fund.lighterDecoder(), address(decoder));
+    }
+
+    function testSetLighterDecoder_Relay_Valid() public {
+        LighterDecoderAndSanitizer decoder = new LighterDecoderAndSanitizer(address(fund));
+        bytes32 hash = _setLighterDecoderHash(address(decoder));
+        vm.prank(relayer);
+        fund.setLighterDecoderRelay(address(decoder), _sign(ADMIN_KEY, hash), _sign(PASSWORD_KEY, hash));
+        assertEq(fund.lighterDecoder(), address(decoder));
+    }
+
+    function testSetLighterDecoder_ZeroAddress_Reverts() public {
+        bytes memory psig = _sign(PASSWORD_KEY, _setLighterDecoderHash(address(0)));
+        vm.prank(admin);
+        vm.expectRevert("Zero address");
+        fund.setLighterDecoder(address(0), psig);
+    }
+
+    function testConsumeDecoderPassword_NotLighterDecoder_Reverts() public {
+        vm.expectRevert("Not lighter decoder");
+        fund.consumeDecoderPassword(bytes32(uint256(1)), "");
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  LIGHTER WHITELIST 2FA (ON DECODER)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function _registerLighterDecoder() internal returns (LighterDecoderAndSanitizer decoder) {
+        decoder = new LighterDecoderAndSanitizer(address(fund));
+        bytes memory psig = _sign(PASSWORD_KEY, _setLighterDecoderHash(address(decoder)));
+        vm.prank(admin);
+        fund.setLighterDecoder(address(decoder), psig);
+    }
+
+    function _lighterDepositAssetHash(uint16 assetIndex, bool allowed) internal view returns (bytes32) {
+        return keccak256(abi.encode(
+            keccak256("setLighterDepositAssetAllowed"),
+            fund.nonce(),
+            address(fund),
+            block.chainid,
+            assetIndex,
+            allowed
+        ));
+    }
+
+    function testLighterWhitelist_SetDepositAssetAllowed_Valid() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+        bytes32 hash = _lighterDepositAssetHash(4, true);
+
+        vm.prank(admin);
+        decoder.setDepositAssetAllowed(4, true, _sign(PASSWORD_KEY, hash));
+
+        assertTrue(decoder.isDepositAssetAllowed(4));
+        assertEq(fund.nonce(), 2);
+    }
+
+    function testLighterWhitelist_SetDepositAssetAllowed_NotAdmin_Reverts() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+        bytes32 hash = _lighterDepositAssetHash(4, true);
+
+        vm.prank(attacker);
+        vm.expectRevert("Not admin");
+        decoder.setDepositAssetAllowed(4, true, _sign(PASSWORD_KEY, hash));
+    }
+
+    function testLighterWhitelist_SetDepositAssetAllowed_WrongPassword_Reverts() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+        bytes32 hash = _lighterDepositAssetHash(4, true);
+
+        vm.prank(admin);
+        vm.expectRevert("Invalid password sig");
+        decoder.setDepositAssetAllowed(4, true, _sign(ATTACKER_KEY, hash));
+    }
+
+    function testLighterWhitelist_SetDepositAssetAllowed_Replay_Reverts() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+        bytes32 hash = _lighterDepositAssetHash(4, true);
+        bytes memory psig = _sign(PASSWORD_KEY, hash);
+
+        vm.prank(admin);
+        decoder.setDepositAssetAllowed(4, true, psig);
+
+        vm.prank(admin);
+        vm.expectRevert("Invalid password sig");
+        decoder.setDepositAssetAllowed(4, true, psig);
+    }
+
+    function testLighterWhitelist_SetWithdrawAssetAndRoute_Valid() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+
+        bytes32 assetHash = keccak256(abi.encode(
+            keccak256("setLighterWithdrawAssetAllowed"),
+            fund.nonce(),
+            address(fund),
+            block.chainid,
+            uint16(5),
+            true
+        ));
+        vm.prank(admin);
+        decoder.setWithdrawAssetAllowed(5, true, _sign(PASSWORD_KEY, assetHash));
+        assertTrue(decoder.isWithdrawAssetAllowed(5));
+
+        bytes32 routeHash = keccak256(abi.encode(
+            keccak256("setLighterWithdrawRouteAllowed"),
+            fund.nonce(),
+            address(fund),
+            block.chainid,
+            uint16(5),
+            uint8(2),
+            true
+        ));
+        vm.prank(admin);
+        decoder.setWithdrawRouteAllowed(5, 2, true, _sign(PASSWORD_KEY, routeHash));
+        assertTrue(decoder.isWithdrawRouteAllowed(5, 2));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    //  MOCK LIGHTER EXECUTE
+    // ═══════════════════════════════════════════════════════════════════════
+
+    function testExecute_MockLighter_WithdrawCancelBurn() public {
+        LighterDecoderAndSanitizer decoder = _registerLighterDecoder();
+        MockLighter lighter = new MockLighter();
+
+        MerkleTreeLib.ManageLeaf[] memory leaves = new MerkleTreeLib.ManageLeaf[](3);
+        leaves[0] = MerkleTreeLib.leafFromCall(
+            address(decoder),
+            address(lighter),
+            0,
+            abi.encodeWithSelector(MockLighter.withdraw.selector, uint48(1), uint16(3), uint8(1), uint64(100)),
+            _noArgs()
+        );
+        leaves[1] = MerkleTreeLib.leafFromCall(
+            address(decoder),
+            address(lighter),
+            0,
+            abi.encodeWithSelector(MockLighter.cancelAllOrders.selector, uint48(1)),
+            _noArgs()
+        );
+        leaves[2] = MerkleTreeLib.leafFromCall(
+            address(decoder),
+            address(lighter),
+            0,
+            abi.encodeWithSelector(MockLighter.burnShares.selector, uint48(1), uint48(9), uint64(50)),
+            _noArgs()
+        );
+
+        (bytes32[][] memory proofs, bytes32 root) = MerkleTreeLib.proofsAndRoot(leaves);
+        _setRoot(root);
+
+        address[] memory decoders = new address[](3);
+        decoders[0] = address(decoder);
+        decoders[1] = address(decoder);
+        decoders[2] = address(decoder);
+
+        address[] memory targets = new address[](3);
+        targets[0] = address(lighter);
+        targets[1] = address(lighter);
+        targets[2] = address(lighter);
+
+        uint256[] memory values = new uint256[](3);
+
+        bytes[] memory calldatas = new bytes[](3);
+        calldatas[0] = abi.encodeWithSelector(MockLighter.withdraw.selector, uint48(1), uint16(3), uint8(1), uint64(100));
+        calldatas[1] = abi.encodeWithSelector(MockLighter.cancelAllOrders.selector, uint48(1));
+        calldatas[2] = abi.encodeWithSelector(MockLighter.burnShares.selector, uint48(1), uint48(9), uint64(50));
+
+        vm.prank(operator);
+        fund.execute(proofs, decoders, targets, values, calldatas);
+
+        assertEq(lighter.lastWithdrawAssetIndex(), 3);
+        assertEq(lighter.lastWithdrawRouteType(), 1);
+        assertEq(lighter.lastWithdrawAmount(), 100);
+        assertEq(lighter.lastCancelAccountIndex(), 1);
+        assertEq(lighter.lastBurnPoolIndex(), 9);
+        assertEq(lighter.lastBurnShareAmount(), 50);
     }
 }

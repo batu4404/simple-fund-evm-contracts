@@ -2,6 +2,8 @@
 src = "src"
 out = "out"
 libs = ["lib"]
+via_ir = true
+fs_permissions = [{ access = "read-write", path = "./leafs"}]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
 

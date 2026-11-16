@@ -1,0 +1,205 @@
+{
+  "manageRoot": "0xf1e5e3cfec8cf4da6476f5a5c07ed5a6b26163b55139d13c10b14978af96467f",
+  "leafCount": 13,
+  "digestComposition": [
+    "decoder",
+    "target",
+    "valueNonZero",
+    "selector",
+    "argumentAddresses"
+  ],
+  "fund": "0x1111111111111111111111111111111111111111",
+  "aaveDecoder": "0x2222222222222222222222222222222222222222",
+  "nestDecoder": "0x3333333333333333333333333333333333333333",
+  "lighterDecoder": "0x4444444444444444444444444444444444444444",
+  "leafs": [
+    {
+      "target": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "decoder": "0x2222222222222222222222222222222222222222",
+      "valueNonZero": false,
+      "signature": "approve(address,uint256)",
+      "selector": "0x095ea7b3",
+      "argumentAddresses": [
+        "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2"
+      ],
+      "description": "Approve USDC for Aave V3 Pool",
+      "leafDigest": "0xe07f2e1611b0573804b4b75840922e802aabbe7b566e12701fc19a6c870d131c"
+    },
+    {
+      "target": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "decoder": "0x2222222222222222222222222222222222222222",
+      "valueNonZero": false,
+      "signature": "supply(address,uint256,address,uint16)",
+      "selector": "0x617ba037",
+      "argumentAddresses": [
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "0x1111111111111111111111111111111111111111"
+      ],
+      "description": "Supply USDC to Aave V3 on behalf of the fund",
+      "leafDigest": "0x3bc1267f17e81727e58c7ca02abda037e7f423fef96fc9c3472ea4a075ba2def"
+    },
+    {
+      "target": "0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2",
+      "decoder": "0x2222222222222222222222222222222222222222",
+      "valueNonZero": false,
+      "signature": "withdraw(address,uint256,address)",
+      "selector": "0x69328dec",
+      "argumentAddresses": [
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "0x1111111111111111111111111111111111111111"
+      ],
+      "description": "Withdraw USDC from Aave V3 to the fund",
+      "leafDigest": "0x60d2e79800338dc5c3022dfc5b2cb701151a0654bbc058dadbf76a96f60d5f05"
+    },
+    {
+      "target": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "decoder": "0x3333333333333333333333333333333333333333",
+      "valueNonZero": false,
+      "signature": "approve(address,uint256)",
+      "selector": "0x095ea7b3",
+      "argumentAddresses": [
+        "0xfC0c4222B3A0c9B060C0B959DEc62442036b9035"
+      ],
+      "description": "Approve USDC for Nest predicate proxy",
+      "leafDigest": "0xb97b7dfc5c3a47141412b23c8e49830e63a5c6c0d8c84a850b4f21d5fa7a9f61"
+    },
+    {
+      "target": "0xfC0c4222B3A0c9B060C0B959DEc62442036b9035",
+      "decoder": "0x3333333333333333333333333333333333333333",
+      "valueNonZero": false,
+      "signature": "deposit(address,uint256,address,address,(string,uint256,address[],bytes[]))",
+      "selector": "0xa46ea103",
+      "argumentAddresses": [
+        "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "0xD258029cF5a177e3306E09Fbea63424543a505c0"
+      ],
+      "description": "Deposit USDC into Nest vault via predicate proxy",
+      "leafDigest": "0x2fd8b0d1440bea645b32d84d43133925823eb152563aab96f5b24bc5c17d721c"
+    },
+    {
+      "target": "0x119Dd7dAFf816f29D7eE47596ae5E4bdC4299165",
+      "decoder": "0x3333333333333333333333333333333333333333",
+      "valueNonZero": false,
+      "signature": "approve(address,uint256)",
+      "selector": "0x095ea7b3",
+      "argumentAddresses": [
+        "0xD258029cF5a177e3306E09Fbea63424543a505c0"
+      ],
+      "description": "Approve Nest share token for Nest vault",
+      "leafDigest": "0x731c6e2aa66831f981a88a43801b382caa5a30304ae6ebe05f3f064330014be9"
+    },
+    {
+      "target": "0xD258029cF5a177e3306E09Fbea63424543a505c0",
+      "decoder": "0x3333333333333333333333333333333333333333",
+      "valueNonZero": false,
+      "signature": "requestRedeem(uint256,address,address)",
+      "selector": "0x7d41c86e",
+      "argumentAddresses": [],
+      "description": "Request Nest redeem",
+      "leafDigest": "0x1bfea0b3b511da53d6a5e8ab92eca478f442c90665bbc076d0934c95812e017a"
+    },
+    {
+      "target": "0xD258029cF5a177e3306E09Fbea63424543a505c0",
+      "decoder": "0x3333333333333333333333333333333333333333",
+      "valueNonZero": false,
+      "signature": "redeem(uint256,address,address)",
+      "selector": "0xba087652",
+      "argumentAddresses": [],
+      "description": "Redeem Nest shares",
+      "leafDigest": "0xca48638dd628bd03f7172cb1ccfb0ce5f7a4278d33be20098b7714cd8cfb2120"
+    },
+    {
+      "target": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+      "decoder": "0x4444444444444444444444444444444444444444",
+      "valueNonZero": false,
+      "signature": "approve(address,uint256)",
+      "selector": "0x095ea7b3",
+      "argumentAddresses": [
+        "0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7"
+      ],
+      "description": "Approve USDC for Lighter",
+      "leafDigest": "0xfe0db4a2d9a8be3606bc60cbdea5e8072b7a58c292833bff25907446de094b97"
+    },
+    {
+      "target": "0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7",
+      "decoder": "0x4444444444444444444444444444444444444444",
+      "valueNonZero": false,
+      "signature": "deposit(address,uint16,uint8,uint256)",
+      "selector": "0x8a857083",
+      "argumentAddresses": [],
+      "description": "Deposit USDC to Lighter",
+      "leafDigest": "0xe3b481e821a05c65ec2a505b771b601401237803c2f45f7e9606b43b855b5563"
+    },
+    {
+      "target": "0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7",
+      "decoder": "0x4444444444444444444444444444444444444444",
+      "valueNonZero": false,
+      "signature": "withdraw(uint48,uint16,uint8,uint64)",
+      "selector": "0xd20191bd",
+      "argumentAddresses": [],
+      "description": "Withdraw from Lighter",
+      "leafDigest": "0x273f2a37467e35b286a215dc59d06ac3ca48259d6ef2470ad82949d68545cee6"
+    },
+    {
+      "target": "0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7",
+      "decoder": "0x4444444444444444444444444444444444444444",
+      "valueNonZero": false,
+      "signature": "cancelAllOrders(uint48)",
+      "selector": "0xa4b6f756",
+      "argumentAddresses": [],
+      "description": "Cancel all Lighter orders",
+      "leafDigest": "0x6ecb3607f9f587ddfb9f4612ce96b1f11cbdf9e3f529720ae3eaecb44e55ff0f"
+    },
+    {
+      "target": "0x3B4D794a66304F130a4Db8F2551B0070dfCf5ca7",
+      "decoder": "0x4444444444444444444444444444444444444444",
+      "valueNonZero": false,
+      "signature": "burnShares(uint48,uint48,uint64)",
+      "selector": "0xae150b39",
+      "argumentAddresses": [],
+      "description": "Burn Lighter shares",
+      "leafDigest": "0x56c891f7149c605d0916b819cd5d179bae1a5ed18d334154eb606c0602ffb24c"
+    }
+  ],
+  "tree": [
+    [
+      "0xe07f2e1611b0573804b4b75840922e802aabbe7b566e12701fc19a6c870d131c",
+      "0x3bc1267f17e81727e58c7ca02abda037e7f423fef96fc9c3472ea4a075ba2def",
+      "0x60d2e79800338dc5c3022dfc5b2cb701151a0654bbc058dadbf76a96f60d5f05",
+      "0xb97b7dfc5c3a47141412b23c8e49830e63a5c6c0d8c84a850b4f21d5fa7a9f61",
+      "0x2fd8b0d1440bea645b32d84d43133925823eb152563aab96f5b24bc5c17d721c",
+      "0x731c6e2aa66831f981a88a43801b382caa5a30304ae6ebe05f3f064330014be9",
+      "0x1bfea0b3b511da53d6a5e8ab92eca478f442c90665bbc076d0934c95812e017a",
+      "0xca48638dd628bd03f7172cb1ccfb0ce5f7a4278d33be20098b7714cd8cfb2120",
+      "0xfe0db4a2d9a8be3606bc60cbdea5e8072b7a58c292833bff25907446de094b97",
+      "0xe3b481e821a05c65ec2a505b771b601401237803c2f45f7e9606b43b855b5563",
+      "0x273f2a37467e35b286a215dc59d06ac3ca48259d6ef2470ad82949d68545cee6",
+      "0x6ecb3607f9f587ddfb9f4612ce96b1f11cbdf9e3f529720ae3eaecb44e55ff0f",
+      "0x56c891f7149c605d0916b819cd5d179bae1a5ed18d334154eb606c0602ffb24c",
+      "0x56c891f7149c605d0916b819cd5d179bae1a5ed18d334154eb606c0602ffb24c"
+    ],
+    [
+      "0xa52fa079aced223f4d18551d493864d839ef45eb7e2080836f1f8f0537d32848",
+      "0x392b77d8d91b3b1f33aa4b8cfbbe1c07bac912331795a18601c7fe0f734bdf19",
+      "0x7093042491ed8b59adb1af69f2c2b94e30632943252b53828d190870c02e26d5",
+      "0xfba2acd1888b92b3b841115d9a5d99b11a58a3b69b21e107e2632e404c47888d",
+      "0x840e0f9d26fffb388230098611ba70c7cdad87277122df58c11cb167345c4651",
+      "0x4085bfd70e7981c3a2108cda896cdceead41e4335ea609e2ce220e982724961a",
+      "0x542a5f47ab7fb8037901addf6028f975539f9ff049d7ef740bed04db599d4fe5",
+      "0x542a5f47ab7fb8037901addf6028f975539f9ff049d7ef740bed04db599d4fe5"
+    ],
+    [
+      "0x884fc654f1cfabb2b7276cef2cc85a7db58ceac70fe41a057abf7d8740d2f96f",
+      "0xb1421470a38ac163aa1b1419bbfe40c9c7559bc046d8891099e2c9ab4d758af1",
+      "0xa5a7bf807406ef1a1bf6751b6f50f4159eaca4b4c433cb62fed55031ac2d60fa",
+      "0xdd3f52bc5cd97213a1facf5cf9ccf7e6f14d15afcaeeae6288efa987b5c09ca6"
+    ],
+    [
+      "0x33caddb52155f99472ce04ab7e6e781087e7beaf3a0966e91a5b5c9862b91295",
+      "0xdbbd3a8d7d3294fdfb92e128aef5cdf02329ff8742bf27c5fa8447e3babdb19e"
+    ],
+    [
+      "0xf1e5e3cfec8cf4da6476f5a5c07ed5a6b26163b55139d13c10b14978af96467f"
+    ]
+  ]
+}
